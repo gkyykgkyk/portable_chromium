@@ -5,6 +5,12 @@ import pyzipper
 import shutil
 import asyncio
 import importlib.util
+import threading
+import time
+try:
+    import requests
+except ImportError:
+    requests = None
 from playwright.async_api import async_playwright
 import proxy_manager
 
@@ -197,6 +203,129 @@ async def execute_macro(context, macro_name):
         return False
 
 
+# ==========================================
+# Telegram Screenshot Bot
+# ==========================================
+def telegram_screenshot_bot(context_pages_getter, stop_event):
+    """
+    Background thread: polls Telegram for messages.
+    When a message is received, takes a screenshot of the active page and sends it back.
+    """
+    if not requests:
+        print("[Telegram] requests library not installed, skipping bot.")
+        return
+    
+    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+    if not bot_token:
+        print("[Telegram] No TELEGRAM_BOT_TOKEN set, skipping bot.")
+        return
+    
+    api = f"https://api.telegram.org/bot{bot_token}"
+    last_update_id = 0
+    
+    print("[Telegram] Screenshot bot started! Send any message to get a screenshot.")
+    
+    while not stop_event.is_set():
+        try:
+            resp = requests.get(f"{api}/getUpdates", params={
+                "offset": last_update_id + 1,
+                "timeout": 5
+            }, timeout=10)
+            
+            if resp.status_code != 200:
+                time.sleep(3)
+                continue
+            
+            updates = resp.json().get('result', [])
+            
+            for update in updates:
+                last_update_id = update['update_id']
+                msg = update.get('message', {})
+                chat_id = msg.get('chat', {}).get('id')
+                
+                if not chat_id:
+                    continue
+                
+                # Take screenshot
+                try:
+                    screenshot_path = os.path.join(BASE_DIR, '_telegram_screenshot.png')
+                    pages = context_pages_getter()
+                    
+                    if pages:
+                        # Use asyncio to take screenshot from the main event loop
+                        import concurrent.futures
+                        loop = asyncio.get_event_loop()
+                        if loop.is_running():
+                            future = asyncio.run_coroutine_threadsafe(
+                                pages[0].screenshot(path=screenshot_path, full_page=False),
+                                loop
+                            )
+                            future.result(timeout=10)
+                        
+                        # Send screenshot
+                        with open(screenshot_path, 'rb') as photo:
+                            requests.post(f"{api}/sendPhoto", data={
+                                "chat_id": chat_id,
+                                "caption": f"📸 Browser Screenshot\n🕐 {time.strftime('%H:%M:%S')}"
+                            }, files={"photo": photo}, timeout=15)
+                        
+                        print(f"[Telegram] Screenshot sent to chat {chat_id}")
+                    else:
+                        requests.post(f"{api}/sendMessage", data={
+                            "chat_id": chat_id,
+                            "text": "⚠️ No browser pages open right now."
+                        }, timeout=10)
+                        
+                except Exception as e:
+                    print(f"[Telegram] Screenshot error: {e}")
+                    try:
+                        requests.post(f"{api}/sendMessage", data={
+                            "chat_id": chat_id,
+                            "text": f"❌ Failed to take screenshot: {e}"
+                        }, timeout=10)
+                    except:
+                        pass
+        except requests.exceptions.Timeout:
+            continue
+        except Exception as e:
+            print(f"[Telegram] Bot error: {e}")
+            time.sleep(5)
+    
+    print("[Telegram] Bot stopped.")
+
+
+def send_telegram_screenshot_sync(page, caption=""):
+    """Send a one-off screenshot to all recent chat IDs (used for initial notification)."""
+    if not requests:
+        return
+    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+    chat_id = os.environ.get('TELEGRAM_CHAT_ID', '')
+    if not bot_token or not chat_id:
+        return
+    
+    try:
+        api = f"https://api.telegram.org/bot{bot_token}"
+        screenshot_path = os.path.join(BASE_DIR, '_telegram_screenshot.png')
+        
+        loop = asyncio.get_event_loop()
+        if loop.is_running():
+            import concurrent.futures
+            future = asyncio.run_coroutine_threadsafe(
+                page.screenshot(path=screenshot_path, full_page=False),
+                loop
+            )
+            future.result(timeout=10)
+        
+        with open(screenshot_path, 'rb') as photo:
+            requests.post(f"{api}/sendPhoto", data={
+                "chat_id": chat_id,
+                "caption": caption or f"📸 Browser Screenshot\n🕐 {time.strftime('%H:%M:%S')}"
+            }, files={"photo": photo}, timeout=15)
+        print(f"[Telegram] Initial screenshot sent.")
+    except Exception as e:
+        print(f"[Telegram] Failed to send initial screenshot: {e}")
+
+
 async def run_action():
     """
     GitHub Actions mode: runs browser in headed mode (xvfb provides display),
@@ -253,6 +382,15 @@ async def run_action():
             except Exception as e:
                 print(f"Warning: Failed to load cookies: {e}")
         
+        # Start Telegram screenshot bot in background
+        telegram_stop = threading.Event()
+        telegram_thread = threading.Thread(
+            target=telegram_screenshot_bot,
+            args=(lambda: list(context.pages), telegram_stop),
+            daemon=True
+        )
+        telegram_thread.start()
+        
         # Execute macro if specified
         if macro_name:
             await execute_macro(context, macro_name)
@@ -282,8 +420,29 @@ async def run_action():
                 except Exception:
                     pass
             
+            # Send initial screenshot after pages are restored
+            await asyncio.sleep(5)  # Wait for pages to load
+            if context.pages:
+                try:
+                    await context.pages[0].screenshot(path=os.path.join(BASE_DIR, '_telegram_screenshot.png'), full_page=False)
+                    bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+                    chat_id = os.environ.get('TELEGRAM_CHAT_ID', '')
+                    if bot_token and chat_id and requests:
+                        api = f"https://api.telegram.org/bot{bot_token}"
+                        with open(os.path.join(BASE_DIR, '_telegram_screenshot.png'), 'rb') as photo:
+                            requests.post(f"{api}/sendPhoto", data={
+                                "chat_id": chat_id,
+                                "caption": f"🚀 Browser started on GitHub Actions!\n🕐 {time.strftime('%H:%M:%S')}\n📄 Pages: {len(context.pages)}"
+                            }, files={"photo": photo}, timeout=15)
+                        print("[Telegram] Initial screenshot sent!")
+                except Exception as e:
+                    print(f"[Telegram] Initial screenshot failed: {e}")
+            
             # Stay alive for the requested duration
             await asyncio.sleep(duration_mins * 60)
+        
+        # Stop telegram bot
+        telegram_stop.set()
         
         # Save cookies before closing
         print("💾 Saving session data...")

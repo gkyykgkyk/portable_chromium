@@ -60,7 +60,7 @@ jobs:
       # 5. Install dependencies
       - name: Install dependencies
         run: |
-          pip install playwright pyzipper
+          pip install playwright pyzipper requests
           playwright install chromium
           playwright install-deps
 
@@ -75,6 +75,8 @@ jobs:
         env:
           SESSION_PASSWORD: ${{ secrets.SESSION_PASSWORD }}
           VLESS_LINK: ${{ secrets.VLESS_LINK }}
+          TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
           MACRO_NAME: ${{ inputs.macro }}
           SESSION_DURATION: ${{ inputs.duration }}
           DISPLAY: ':99'
