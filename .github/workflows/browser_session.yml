@@ -64,13 +64,22 @@ jobs:
           playwright install chromium
           playwright install-deps
 
-      # 6. Install xvfb, screenshot tools, and macro dependencies
-      - name: Install xvfb
+      # 6. Install xvfb, screenshot tools, macro deps, and remote desktop
+      - name: Install xvfb and tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb scrot imagemagick python3-tk python3-xlib xdotool xclip
+          sudo apt-get install -y xvfb scrot imagemagick python3-tk python3-xlib xdotool xclip \
+            openbox x11vnc xrdp
 
-      # 7. Run the browser session with xvfb (virtual display)
+      # 7. Setup Tailscale VPN for remote access
+      - name: Setup Tailscale
+        uses: tailscale/github-action@v3
+        with:
+          authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
+          hostname: gh-browser
+        continue-on-error: true
+
+      # 8. Run browser session with xvfb + remote desktop
       - name: Run browser session
         env:
           SESSION_PASSWORD: ${{ secrets.SESSION_PASSWORD }}
@@ -82,11 +91,54 @@ jobs:
           SESSION_DURATION: ${{ inputs.duration }}
           DISPLAY: ':99'
         run: |
-          Xvfb :99 -screen 0 1280x800x24 &
+          # Start virtual display
+          Xvfb :99 -screen 0 1920x1080x24 &
           sleep 2
+
+          # Start window manager on :99 (needed for browser window management)
+          DISPLAY=:99 openbox &
+          sleep 1
+
+          # Setup Remote Desktop if Tailscale is connected
+          TS_IP=$(tailscale ip -4 2>/dev/null || echo "")
+          if [ -n "$TS_IP" ]; then
+            echo "🌐 Tailscale connected: $TS_IP"
+
+            # Share existing :99 display via x11vnc (no password - secured by Tailscale)
+            x11vnc -display :99 -forever -shared -rfbport 5900 -nopw -bg -o /tmp/x11vnc.log
+
+            # Configure xrdp to proxy to x11vnc (same display as browser)
+            sudo python3 -c "
+import re
+with open('/etc/xrdp/xrdp.ini','r') as f: c=f.read()
+c=re.sub(r'\[xrdp1\].*?(?=\n\[|\Z)',
+'[xrdp1]\nname=Browser\nlib=libvnc.so\nip=127.0.0.1\nport=5900\nusername=na\npassword=na\n',
+c, flags=re.DOTALL)
+with open('/etc/xrdp/xrdp.ini','w') as f: f.write(c)
+"
+
+            # Start xrdp service
+            sudo /usr/sbin/xrdp
+            sudo /usr/sbin/xrdp-sesman
+
+            echo "🖥️ RDP Ready: ${TS_IP}:3389"
+
+            # Notify via Telegram
+            if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+              curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
+                -d "chat_id=${TELEGRAM_CHAT_ID}" \
+                -d "text=🖥️ Remote Desktop جاهز!
+          🌐 Tailscale IP: ${TS_IP}
+          📋 افتح Remote Desktop Connection
+              Computer: ${TS_IP}
+          ⚡ نفس الشاشة اللي المتصفح شغال فيها!
+          📐 Resolution: 1920x1080"
+            fi
+          fi
+
           python main.py run-action
 
-      # 8. Upload the updated session as artifact
+      # 9. Upload the updated session as artifact
       - name: Upload updated session
         if: always()
         uses: actions/upload-artifact@v4
