@@ -125,14 +125,10 @@ with open('/etc/xrdp/xrdp.ini','w') as f: f.write(c)
 
             # Notify via Telegram
             if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
+              MSG="🖥️ Remote Desktop Ready!%0A🌐 IP: ${TS_IP}%0A📋 Computer: ${TS_IP}%0A⚡ Same display as browser!%0A📐 1920x1080"
               curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
                 -d "chat_id=${TELEGRAM_CHAT_ID}" \
-                -d "text=🖥️ Remote Desktop جاهز!
-          🌐 Tailscale IP: ${TS_IP}
-          📋 افتح Remote Desktop Connection
-              Computer: ${TS_IP}
-          ⚡ نفس الشاشة اللي المتصفح شغال فيها!
-          📐 Resolution: 1920x1080"
+                -d "text=${MSG}"
             fi
           fi
 
