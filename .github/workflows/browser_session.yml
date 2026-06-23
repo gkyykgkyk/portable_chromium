@@ -24,22 +24,27 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Download previous session from last successful run (if exists)
-      - name: Download previous session
+      # 2. Try to download session from last run's artifact
+      - name: Download previous session (artifact)
+        id: artifact
         uses: dawidd6/action-download-artifact@v6
+        continue-on-error: true
         with:
           name: browser-session
           workflow: browser_session.yml
           if_no_artifact_found: warn
           search_artifacts: true
 
-      # 3. Check if previous session was downloaded
-      - name: Check session file
+      # 3. If no artifact, download from GitHub Release as fallback
+      - name: Download session from Release (fallback)
+        if: steps.artifact.outcome == 'failure' || !hashFiles('session.crsession')
         run: |
-          if [ -f "session.crsession" ]; then
-            echo "✅ Found previous session file"
+          if [ ! -f "session.crsession" ]; then
+            echo "📥 Downloading session from GitHub Release..."
+            curl -L -o session.crsession "https://github.com/gkyykgkyk/portable_chromium/releases/download/%D8%AB%D9%8A/session.crsession"
+            echo "✅ Downloaded session from Release ($(du -h session.crsession | cut -f1))"
           else
-            echo "⚠️ No previous session found - starting fresh"
+            echo "✅ Session already exists from artifact"
           fi
 
       # 4. Setup Python
