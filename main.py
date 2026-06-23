@@ -390,17 +390,17 @@ def telegram_screenshot_bot(context_pages_getter, stop_event, main_loop):
                     screenshot_path = os.path.join(BASE_DIR, '_telegram_screenshot.png')
                     screenshot_taken = False
                     
-                    # Method 1: System-level screenshot (captures entire xvfb display - most reliable)
+                    # Method 1: System-level screenshot (captures entire xvfb display with browser chrome)
                     import subprocess
                     display = os.environ.get('DISPLAY', ':99')
+                    scrot_env = {**os.environ, 'DISPLAY': display}
                     for cmd in [
-                        f"scrot -D {display} {screenshot_path}",
-                        f"import -window root -display {display} {screenshot_path}",
-                        f"xwd -root -display {display} | convert xwd:- {screenshot_path}"
+                        f"scrot {screenshot_path}",
+                        f"import -window root {screenshot_path}",
+                        f"xwd -root | convert xwd:- {screenshot_path}"
                     ]:
                         try:
-                            subprocess.run(cmd, shell=True, timeout=5, capture_output=True,
-                                         env={**os.environ, 'DISPLAY': display})
+                            subprocess.run(cmd, shell=True, timeout=5, capture_output=True, env=scrot_env)
                             if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 100:
                                 screenshot_taken = True
                                 break
