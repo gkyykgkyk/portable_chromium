@@ -206,10 +206,11 @@ async def execute_macro(context, macro_name):
 # ==========================================
 # Telegram Screenshot Bot
 # ==========================================
-def telegram_screenshot_bot(context_pages_getter, stop_event):
+def telegram_screenshot_bot(context_pages_getter, stop_event, main_loop):
     """
     Background thread: polls Telegram for messages.
     When a message is received, takes a screenshot of the active page and sends it back.
+    main_loop: the asyncio event loop from the main thread.
     """
     if not requests:
         print("[Telegram] requests library not installed, skipping bot.")
@@ -252,15 +253,12 @@ def telegram_screenshot_bot(context_pages_getter, stop_event):
                     pages = context_pages_getter()
                     
                     if pages:
-                        # Use asyncio to take screenshot from the main event loop
-                        import concurrent.futures
-                        loop = asyncio.get_event_loop()
-                        if loop.is_running():
-                            future = asyncio.run_coroutine_threadsafe(
-                                pages[0].screenshot(path=screenshot_path, full_page=False),
-                                loop
-                            )
-                            future.result(timeout=10)
+                        # Use the main thread's event loop to take screenshot
+                        future = asyncio.run_coroutine_threadsafe(
+                            pages[0].screenshot(path=screenshot_path, full_page=False),
+                            main_loop
+                        )
+                        future.result(timeout=10)
                         
                         # Send screenshot
                         with open(screenshot_path, 'rb') as photo:
@@ -384,9 +382,10 @@ async def run_action():
         
         # Start Telegram screenshot bot in background
         telegram_stop = threading.Event()
+        main_loop = asyncio.get_event_loop()
         telegram_thread = threading.Thread(
             target=telegram_screenshot_bot,
-            args=(lambda: list(context.pages), telegram_stop),
+            args=(lambda: list(context.pages), telegram_stop, main_loop),
             daemon=True
         )
         telegram_thread.start()
