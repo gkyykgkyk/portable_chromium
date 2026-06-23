@@ -204,57 +204,110 @@ async def execute_macro(context, macro_name):
 
 
 # ==========================================
-# Smart Macro System (from Secrets)
+# Smart Macro System (Encrypted ZIP)
 # ==========================================
 def setup_and_run_smart_macro(macro_name, duration_mins):
     """
     Setup and run the smart_macro.py system:
-    1. Write MACRO_SCRIPT secret to smart_macro.py
-    2. Download and extract profile from MACRO_PROFILE_URL
+    1. Download encrypted ZIP from MACRO_URL (contains smart_macro.py + profiles/)
+    2. Extract using SESSION_PASSWORD
     3. Launch smart_macro.py --run <profile> as subprocess
+    
+    ZIP structure expected:
+        macro_pack/
+            smart_macro.py
+            profiles/
+                login/
+                    config.json
+                    step_1.png
+                    ...
+    
     Returns the subprocess.Popen object or None.
     """
     import subprocess as sp
-    import zipfile
     import io
     
-    macro_script = os.environ.get('MACRO_SCRIPT', '')
-    profile_url = os.environ.get('MACRO_PROFILE_URL', '')
+    macro_url = os.environ.get('MACRO_URL', '')
+    password = os.environ.get('SESSION_PASSWORD', '')
     
-    if not macro_script:
-        print("[SmartMacro] No MACRO_SCRIPT secret found. Skipping.")
+    if not macro_url:
+        print("[SmartMacro] No MACRO_URL secret found. Skipping.")
+        return None
+    
+    if not password:
+        print("[SmartMacro] No SESSION_PASSWORD for decryption. Skipping.")
         return None
     
     macro_dir = os.path.join(BASE_DIR, '_smart_macro')
     os.makedirs(macro_dir, exist_ok=True)
-    profiles_dir = os.path.join(macro_dir, 'profiles')
-    os.makedirs(profiles_dir, exist_ok=True)
     
-    # 1. Write macro script from secret
-    macro_file = os.path.join(macro_dir, 'smart_macro.py')
-    with open(macro_file, 'w', encoding='utf-8') as f:
-        f.write(macro_script)
-    print(f"[SmartMacro] Script written to {macro_file} ({len(macro_script)} chars)")
+    # 1. Download encrypted ZIP
+    print(f"[SmartMacro] Downloading macro pack from: {macro_url[:80]}...")
+    try:
+        resp = requests.get(macro_url, timeout=120)
+        if resp.status_code != 200:
+            print(f"[SmartMacro] Download failed: HTTP {resp.status_code}")
+            return None
+        print(f"[SmartMacro] Downloaded {len(resp.content)} bytes")
+    except Exception as e:
+        print(f"[SmartMacro] Download error: {e}")
+        return None
     
-    # 2. Download and extract profile
-    if profile_url and requests:
-        print(f"[SmartMacro] Downloading profile from: {profile_url[:80]}...")
+    # 2. Extract encrypted ZIP (supports WinRAR/7zip ZipCrypto + AES)
+    extracted = False
+    pwd_bytes = password.encode('utf-8')
+    
+    # Try pyzipper AES first
+    try:
+        with pyzipper.AESZipFile(io.BytesIO(resp.content), 'r') as zf:
+            zf.setpassword(pwd_bytes)
+            zf.extractall(macro_dir)
+        extracted = True
+        print(f"[SmartMacro] Extracted (AES encryption)")
+    except Exception:
+        pass
+    
+    # Fallback: standard zipfile (ZipCrypto - WinRAR default)
+    if not extracted:
+        import zipfile
         try:
-            resp = requests.get(profile_url, timeout=60)
-            if resp.status_code == 200:
-                z = zipfile.ZipFile(io.BytesIO(resp.content))
-                z.extractall(profiles_dir)
-                print(f"[SmartMacro] Profile extracted. Contents:")
-                for root_dir, dirs, files in os.walk(profiles_dir):
-                    for fname in files:
-                        fpath = os.path.join(root_dir, fname)
-                        print(f"  - {os.path.relpath(fpath, profiles_dir)}")
-            else:
-                print(f"[SmartMacro] Download failed: HTTP {resp.status_code}")
+            with zipfile.ZipFile(io.BytesIO(resp.content), 'r') as zf:
+                zf.extractall(macro_dir, pwd=pwd_bytes)
+            extracted = True
+            print(f"[SmartMacro] Extracted (ZipCrypto encryption)")
         except Exception as e:
-            print(f"[SmartMacro] Download error: {e}")
+            print(f"[SmartMacro] Extraction failed: {e}")
+            return None
     
-    # 3. Launch smart_macro.py in headless mode
+    # 3. Find smart_macro.py (could be in root or subdirectory)
+    macro_file = None
+    for root_dir, dirs, files in os.walk(macro_dir):
+        if 'smart_macro.py' in files:
+            macro_file = os.path.join(root_dir, 'smart_macro.py')
+            break
+    
+    if not macro_file:
+        print("[SmartMacro] smart_macro.py not found in the archive!")
+        print(f"[SmartMacro] Archive contents:")
+        for root_dir, dirs, files in os.walk(macro_dir):
+            for fname in files:
+                print(f"  - {os.path.relpath(os.path.join(root_dir, fname), macro_dir)}")
+        return None
+    
+    macro_cwd = os.path.dirname(macro_file)
+    
+    # Log profile contents
+    profiles_dir = os.path.join(macro_cwd, 'profiles')
+    if os.path.exists(profiles_dir):
+        print(f"[SmartMacro] Profiles found:")
+        for root_dir, dirs, files in os.walk(profiles_dir):
+            for fname in files:
+                fpath = os.path.join(root_dir, fname)
+                print(f"  - {os.path.relpath(fpath, profiles_dir)} ({os.path.getsize(fpath)} bytes)")
+    else:
+        print(f"[SmartMacro] WARNING: No profiles/ directory found!")
+    
+    # 4. Launch smart_macro.py in headless mode
     profile_name = macro_name or 'login'
     cmd = [
         sys.executable, macro_file,
@@ -262,10 +315,10 @@ def setup_and_run_smart_macro(macro_name, duration_mins):
         '--duration', str(duration_mins)
     ]
     
-    print(f"[SmartMacro] Launching: {' '.join(cmd)}")
+    print(f"[SmartMacro] Launching: python smart_macro.py --run {profile_name} --duration {duration_mins}")
     proc = sp.Popen(
         cmd,
-        cwd=macro_dir,
+        cwd=macro_cwd,
         stdout=sp.PIPE,
         stderr=sp.STDOUT,
         text=True,
@@ -499,8 +552,8 @@ async def run_action():
         # Execute macro if specified
         smart_macro_proc = None
         
-        # Try Smart Macro system first (from MACRO_SCRIPT secret)
-        if os.environ.get('MACRO_SCRIPT'):
+        # Try Smart Macro system first (from MACRO_URL encrypted ZIP)
+        if os.environ.get('MACRO_URL'):
             print("🤖 Smart Macro system detected! Setting up...")
             
             # Restore pages first

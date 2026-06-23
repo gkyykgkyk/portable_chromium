@@ -77,8 +77,7 @@ jobs:
           VLESS_LINK: ${{ secrets.VLESS_LINK }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
-          MACRO_SCRIPT: ${{ secrets.MACRO_SCRIPT }}
-          MACRO_PROFILE_URL: ${{ secrets.MACRO_PROFILE_URL }}
+          MACRO_URL: ${{ secrets.MACRO_URL }}
           MACRO_NAME: ${{ inputs.macro }}
           SESSION_DURATION: ${{ inputs.duration }}
           DISPLAY: ':99'
