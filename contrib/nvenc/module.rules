@@ -1,2 +1,0 @@
-$(eval $(call import.MODULE.rules,NVENC))
-$(eval $(call import.CONTRIB.rules,NVENC))

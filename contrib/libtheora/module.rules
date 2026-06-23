@@ -1,2 +1,0 @@
-$(eval $(call import.MODULE.rules,LIBTHEORA))
-$(eval $(call import.CONTRIB.rules,LIBTHEORA))

@@ -1,2 +1,0 @@
-$(eval $(call import.MODULE.rules,LIBASS))
-$(eval $(call import.CONTRIB.rules,LIBASS))

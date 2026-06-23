@@ -1,2 +1,0 @@
-$(eval $(call import.MODULE.rules,LIBSPEEX))
-$(eval $(call import.CONTRIB.rules,LIBSPEEX))

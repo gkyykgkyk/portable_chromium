@@ -1,2 +1,0 @@
-$(eval $(call import.MODULE.rules,LIBBLURAY))
-$(eval $(call import.CONTRIB.rules,LIBBLURAY))

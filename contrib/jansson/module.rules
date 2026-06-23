@@ -1,2 +1,0 @@
-$(eval $(call import.MODULE.rules,JANSSON))
-$(eval $(call import.CONTRIB.rules,JANSSON))
