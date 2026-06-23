@@ -33,11 +33,10 @@ jobs:
           if_no_artifact_found: warn
           search_artifacts: true
 
-      # 3. Move session file into project directory if downloaded
-      - name: Move session file
+      # 3. Check if previous session was downloaded
+      - name: Check session file
         run: |
           if [ -f "session.crsession" ]; then
-            mv session.crsession portable_chromium/session.crsession
             echo "✅ Found previous session file"
           else
             echo "⚠️ No previous session found - starting fresh"
@@ -73,7 +72,6 @@ jobs:
         run: |
           Xvfb :99 -screen 0 1280x800x24 &
           sleep 2
-          cd portable_chromium
           python main.py run-action
 
       # 8. Upload the updated session as artifact
@@ -82,6 +80,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: browser-session
-          path: portable_chromium/session.crsession
+          path: session.crsession
           retention-days: 90
           overwrite: true
