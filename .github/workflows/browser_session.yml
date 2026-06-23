@@ -89,8 +89,7 @@ jobs:
           TS_IP=$(tailscale ip -4 2>/dev/null || true)
           if [ -n "$TS_IP" ]; then
             echo "Tailscale connected: $TS_IP"
-            sudo useradd -m admin || true
-            echo "admin:admin" | sudo chpasswd
+            echo "runner:admin" | sudo chpasswd || true
             x11vnc -display :99 -forever -shared -rfbport 5900 -nopw -bg -o /tmp/x11vnc.log || true
             sudo pkill xrdp || true
             sudo pkill xrdp-sesman || true
@@ -128,9 +127,9 @@ jobs:
           XRDPEOF
             sudo /usr/sbin/xrdp || true
             sudo /usr/sbin/xrdp-sesman || true
-            echo "RDP Ready: ${TS_IP}:3389 (user: admin / pass: admin)"
+            echo "RDP Ready: ${TS_IP}:3389 (user: runner / pass: admin)"
             if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-              curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=RDP Ready! IP: ${TS_IP}:3389 | user: admin | pass: admin" || true
+              curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=RDP Ready! IP: ${TS_IP}:3389 | user: runner | pass: admin" || true
             fi
           fi
           python main.py run-action
