@@ -1,0 +1,24 @@
+{
+  "manifest_version": 3,
+  "name": "Portable Chromium State Saver",
+  "version": "1.0",
+  "description": "Saves scroll position and video playback state to restore across sessions.",
+  "permissions": [
+    "storage",
+    "tabs",
+    "webNavigation"
+  ],
+  "host_permissions": [
+    "<all_urls>"
+  ],
+  "background": {
+    "service_worker": "background.js"
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content.js"],
+      "run_at": "document_start"
+    }
+  ]
+}

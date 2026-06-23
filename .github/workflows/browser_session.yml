@@ -1,0 +1,87 @@
+name: Browser Session
+
+on:
+  workflow_dispatch:
+    inputs:
+      macro:
+        description: 'اسم الماكرو المطلوب تنفيذه (اتركه فارغاً لجلسة بدون ماكرو)'
+        required: false
+        default: ''
+        type: string
+      duration:
+        description: 'مدة تشغيل المتصفح بالدقائق (الافتراضي 10)'
+        required: false
+        default: '10'
+        type: string
+
+jobs:
+  run-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 360
+
+    steps:
+      # 1. Checkout the repo code
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      # 2. Download previous session from last successful run (if exists)
+      - name: Download previous session
+        uses: dawidd6/action-download-artifact@v6
+        with:
+          name: browser-session
+          workflow: browser_session.yml
+          if_no_artifact_found: warn
+          search_artifacts: true
+
+      # 3. Move session file into project directory if downloaded
+      - name: Move session file
+        run: |
+          if [ -f "session.crsession" ]; then
+            mv session.crsession portable_chromium/session.crsession
+            echo "✅ Found previous session file"
+          else
+            echo "⚠️ No previous session found - starting fresh"
+          fi
+
+      # 4. Setup Python
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # 5. Install dependencies
+      - name: Install dependencies
+        run: |
+          pip install playwright pyzipper
+          playwright install chromium
+          playwright install-deps
+
+      # 6. Install xvfb for virtual display (headed mode support)
+      - name: Install xvfb
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y xvfb
+
+      # 7. Run the browser session with xvfb (virtual display)
+      - name: Run browser session
+        env:
+          SESSION_PASSWORD: ${{ secrets.SESSION_PASSWORD }}
+          VLESS_LINK: ${{ secrets.VLESS_LINK }}
+          MACRO_NAME: ${{ inputs.macro }}
+          SESSION_DURATION: ${{ inputs.duration }}
+          DISPLAY: ':99'
+        run: |
+          Xvfb :99 -screen 0 1280x800x24 &
+          sleep 2
+          cd portable_chromium
+          python main.py run-action
+
+      # 8. Upload the updated session as artifact
+      - name: Upload updated session
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: browser-session
+          path: portable_chromium/session.crsession
+          retention-days: 90
+          overwrite: true

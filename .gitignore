@@ -1,0 +1,18 @@
+# Sensitive files
+.env
+
+# Browser profile data
+profile/
+
+# Python cache
+__pycache__/
+*.pyc
+*.pyo
+
+# Xray binary and config
+xray/
+xray_config.json
+
+# OS files
+.DS_Store
+Thumbs.db
