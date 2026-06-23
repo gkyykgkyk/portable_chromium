@@ -64,11 +64,11 @@ jobs:
           playwright install chromium
           playwright install-deps
 
-      # 6. Install xvfb for virtual display (headed mode support)
+      # 6. Install xvfb and screenshot tools
       - name: Install xvfb
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb
+          sudo apt-get install -y xvfb scrot imagemagick
 
       # 7. Run the browser session with xvfb (virtual display)
       - name: Run browser session

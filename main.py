@@ -250,16 +250,37 @@ def telegram_screenshot_bot(context_pages_getter, stop_event, main_loop):
                 # Take screenshot
                 try:
                     screenshot_path = os.path.join(BASE_DIR, '_telegram_screenshot.png')
-                    pages = context_pages_getter()
+                    screenshot_taken = False
                     
-                    if pages:
-                        # Use the main thread's event loop to take screenshot
-                        future = asyncio.run_coroutine_threadsafe(
-                            pages[0].screenshot(path=screenshot_path, full_page=False),
-                            main_loop
-                        )
-                        future.result(timeout=10)
-                        
+                    # Method 1: System-level screenshot (captures entire xvfb display - most reliable)
+                    import subprocess
+                    display = os.environ.get('DISPLAY', ':99')
+                    for cmd in [
+                        f"scrot -D {display} {screenshot_path}",
+                        f"import -window root -display {display} {screenshot_path}",
+                        f"xwd -root -display {display} | convert xwd:- {screenshot_path}"
+                    ]:
+                        try:
+                            subprocess.run(cmd, shell=True, timeout=5, capture_output=True,
+                                         env={**os.environ, 'DISPLAY': display})
+                            if os.path.exists(screenshot_path) and os.path.getsize(screenshot_path) > 100:
+                                screenshot_taken = True
+                                break
+                        except Exception:
+                            continue
+                    
+                    # Method 2: Fallback to Playwright page screenshot
+                    if not screenshot_taken:
+                        pages = context_pages_getter()
+                        if pages:
+                            future = asyncio.run_coroutine_threadsafe(
+                                pages[0].screenshot(path=screenshot_path, full_page=False),
+                                main_loop
+                            )
+                            future.result(timeout=10)
+                            screenshot_taken = True
+                    
+                    if screenshot_taken and os.path.exists(screenshot_path):
                         # Send screenshot
                         with open(screenshot_path, 'rb') as photo:
                             requests.post(f"{api}/sendPhoto", data={
