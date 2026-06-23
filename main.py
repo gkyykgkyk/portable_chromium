@@ -157,6 +157,11 @@ async def start_browser():
         except Exception:
             pass
         print("Session finalized.")
+        
+        # Auto-export session.crsession with latest data
+        print("Updating session.crsession...")
+        export_session()
+        print("session.crsession updated!")
 
         
         # Stop xray proxy
@@ -732,6 +737,20 @@ def export_session():
 
     try:
         password = os.environ.get("SESSION_PASSWORD", "")
+        
+        # Auto-load from .env file if not in environment
+        if not password:
+            env_file = os.path.join(os.path.dirname(BASE_DIR), '.env')
+            if os.path.exists(env_file):
+                with open(env_file, 'r', encoding='utf-8') as f:
+                    for line in f:
+                        line = line.strip()
+                        if line.startswith('SESSION_PASSWORD') and '=' in line:
+                            password = line.split('=', 1)[1].strip()
+                            if password:
+                                print(f"Using SESSION_PASSWORD from .env")
+                                break
+        
         if not password and sys.stdin.isatty():
             password = getpass.getpass("Enter a strong password to encrypt the session (or press Enter to skip encryption): ")
             
@@ -779,6 +798,22 @@ def import_session(filepath):
     try:
         with pyzipper.AESZipFile(filepath, 'r') as zipf:
             password = os.environ.get("SESSION_PASSWORD")
+            
+            # Auto-load from .env file if not in environment
+            if not password:
+                env_file = os.path.join(os.path.dirname(BASE_DIR), '.env')
+                if os.path.exists(env_file):
+                    try:
+                        with open(env_file, 'r', encoding='utf-8') as ef:
+                            for eline in ef:
+                                eline = eline.strip()
+                                if eline.startswith('SESSION_PASSWORD') and '=' in eline:
+                                    password = eline.split('=', 1)[1].strip()
+                                    if password:
+                                        print("Using SESSION_PASSWORD from .env")
+                                        break
+                    except Exception:
+                        pass
             
             if not password and sys.stdin.isatty():
                 import getpass
