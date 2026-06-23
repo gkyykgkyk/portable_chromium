@@ -89,13 +89,48 @@ jobs:
           TS_IP=$(tailscale ip -4 2>/dev/null || true)
           if [ -n "$TS_IP" ]; then
             echo "Tailscale connected: $TS_IP"
+            sudo useradd -m admin || true
+            echo "admin:admin" | sudo chpasswd
             x11vnc -display :99 -forever -shared -rfbport 5900 -nopw -bg -o /tmp/x11vnc.log || true
-            sudo sed -i '/^\[xrdp1\]/,/^\[/{s/^port=.*/port=5900/;s/^ip=.*/ip=127.0.0.1/;s/^username=.*/username=na/;s/^password=.*/password=na/}' /etc/xrdp/xrdp.ini || true
+            sudo pkill xrdp || true
+            sudo pkill xrdp-sesman || true
+            sleep 1
+            sudo tee /etc/xrdp/xrdp.ini > /dev/null << 'XRDPEOF'
+          [Globals]
+          ini_version=1
+          port=3389
+          use_vsock=false
+          security_layer=negotiate
+          crypt_level=high
+          certificate=
+          key_file=
+          ssl_protocols=TLSv1.2, TLSv1.3
+          autorun=BrowserVNC
+          allow_channels=true
+          max_bpp=32
+
+          [Logging]
+          LogFile=xrdp.log
+          LogLevel=CORE
+
+          [Channels]
+          rdpdr=true
+          rdpsnd=true
+          cliprdr=true
+
+          [BrowserVNC]
+          name=Browser Session
+          lib=libvnc.so
+          ip=127.0.0.1
+          port=5900
+          username=na
+          password=na
+          XRDPEOF
             sudo /usr/sbin/xrdp || true
             sudo /usr/sbin/xrdp-sesman || true
-            echo "RDP Ready: ${TS_IP}:3389"
+            echo "RDP Ready: ${TS_IP}:3389 (user: admin / pass: admin)"
             if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-              curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=RDP Ready! IP: ${TS_IP} - Open Remote Desktop Connection" || true
+              curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=RDP Ready! IP: ${TS_IP}:3389 | user: admin | pass: admin" || true
             fi
           fi
           python main.py run-action
