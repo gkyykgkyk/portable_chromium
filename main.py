@@ -204,6 +204,91 @@ async def execute_macro(context, macro_name):
 
 
 # ==========================================
+# Smart Macro System (from Secrets)
+# ==========================================
+def setup_and_run_smart_macro(macro_name, duration_mins):
+    """
+    Setup and run the smart_macro.py system:
+    1. Write MACRO_SCRIPT secret to smart_macro.py
+    2. Download and extract profile from MACRO_PROFILE_URL
+    3. Launch smart_macro.py --run <profile> as subprocess
+    Returns the subprocess.Popen object or None.
+    """
+    import subprocess as sp
+    import zipfile
+    import io
+    
+    macro_script = os.environ.get('MACRO_SCRIPT', '')
+    profile_url = os.environ.get('MACRO_PROFILE_URL', '')
+    
+    if not macro_script:
+        print("[SmartMacro] No MACRO_SCRIPT secret found. Skipping.")
+        return None
+    
+    macro_dir = os.path.join(BASE_DIR, '_smart_macro')
+    os.makedirs(macro_dir, exist_ok=True)
+    profiles_dir = os.path.join(macro_dir, 'profiles')
+    os.makedirs(profiles_dir, exist_ok=True)
+    
+    # 1. Write macro script from secret
+    macro_file = os.path.join(macro_dir, 'smart_macro.py')
+    with open(macro_file, 'w', encoding='utf-8') as f:
+        f.write(macro_script)
+    print(f"[SmartMacro] Script written to {macro_file} ({len(macro_script)} chars)")
+    
+    # 2. Download and extract profile
+    if profile_url and requests:
+        print(f"[SmartMacro] Downloading profile from: {profile_url[:80]}...")
+        try:
+            resp = requests.get(profile_url, timeout=60)
+            if resp.status_code == 200:
+                z = zipfile.ZipFile(io.BytesIO(resp.content))
+                z.extractall(profiles_dir)
+                print(f"[SmartMacro] Profile extracted. Contents:")
+                for root_dir, dirs, files in os.walk(profiles_dir):
+                    for fname in files:
+                        fpath = os.path.join(root_dir, fname)
+                        print(f"  - {os.path.relpath(fpath, profiles_dir)}")
+            else:
+                print(f"[SmartMacro] Download failed: HTTP {resp.status_code}")
+        except Exception as e:
+            print(f"[SmartMacro] Download error: {e}")
+    
+    # 3. Launch smart_macro.py in headless mode
+    profile_name = macro_name or 'login'
+    cmd = [
+        sys.executable, macro_file,
+        '--run', profile_name,
+        '--duration', str(duration_mins)
+    ]
+    
+    print(f"[SmartMacro] Launching: {' '.join(cmd)}")
+    proc = sp.Popen(
+        cmd,
+        cwd=macro_dir,
+        stdout=sp.PIPE,
+        stderr=sp.STDOUT,
+        text=True,
+        bufsize=1,
+        env={**os.environ, 'DISPLAY': os.environ.get('DISPLAY', ':99')}
+    )
+    
+    # Stream logs to stdout in a background thread
+    def stream_logs():
+        try:
+            for line in proc.stdout:
+                print(f"[MACRO] {line.rstrip()}")
+        except Exception:
+            pass
+    
+    log_thread = threading.Thread(target=stream_logs, daemon=True)
+    log_thread.start()
+    
+    print(f"[SmartMacro] Process started (PID: {proc.pid})")
+    return proc
+
+
+# ==========================================
 # Telegram Screenshot Bot
 # ==========================================
 def telegram_screenshot_bot(context_pages_getter, stop_event, main_loop):
@@ -412,7 +497,78 @@ async def run_action():
         telegram_thread.start()
         
         # Execute macro if specified
-        if macro_name:
+        smart_macro_proc = None
+        
+        # Try Smart Macro system first (from MACRO_SCRIPT secret)
+        if os.environ.get('MACRO_SCRIPT'):
+            print("🤖 Smart Macro system detected! Setting up...")
+            
+            # Restore pages first
+            LAST_PAGES_FILE = os.path.join(PROFILE_DIR, 'last_pages.json')
+            if os.path.exists(LAST_PAGES_FILE):
+                try:
+                    with open(LAST_PAGES_FILE, 'r') as f:
+                        last_urls = json.load(f)
+                    if last_urls:
+                        print(f"Restoring {len(last_urls)} page(s)...")
+                        existing_pages = list(context.pages)
+                        if existing_pages and last_urls:
+                            try:
+                                await existing_pages[0].goto(last_urls[0], wait_until="domcontentloaded", timeout=30000)
+                            except Exception:
+                                pass
+                        for url in last_urls[1:]:
+                            try:
+                                pg = await context.new_page()
+                                await pg.goto(url, wait_until="domcontentloaded", timeout=30000)
+                            except Exception:
+                                pass
+                except Exception:
+                    pass
+            
+            # Wait for browser to fully load
+            await asyncio.sleep(8)
+            
+            # Send initial screenshot
+            try:
+                import subprocess as sp_check
+                display = os.environ.get('DISPLAY', ':99')
+                screenshot_path = os.path.join(BASE_DIR, '_telegram_screenshot.png')
+                sp_check.run(f"scrot -D {display} {screenshot_path}", shell=True, timeout=5, capture_output=True,
+                           env={**os.environ, 'DISPLAY': display})
+                
+                bot_token = os.environ.get('TELEGRAM_BOT_TOKEN', '')
+                chat_id = os.environ.get('TELEGRAM_CHAT_ID', '')
+                if bot_token and chat_id and requests and os.path.exists(screenshot_path):
+                    api = f"https://api.telegram.org/bot{bot_token}"
+                    with open(screenshot_path, 'rb') as photo:
+                        requests.post(f"{api}/sendPhoto", data={
+                            "chat_id": chat_id,
+                            "caption": f"🤖 Smart Macro starting!\n🕐 {time.strftime('%H:%M:%S')}\n📄 Profile: {macro_name or 'login'}"
+                        }, files={"photo": photo}, timeout=15)
+                    print("[Telegram] Initial screenshot sent!")
+            except Exception as e:
+                print(f"[Telegram] Initial screenshot failed: {e}")
+            
+            # Launch smart macro as subprocess
+            smart_macro_proc = setup_and_run_smart_macro(macro_name or 'login', duration_mins)
+            
+            if smart_macro_proc:
+                # Wait for macro to finish or timeout
+                try:
+                    smart_macro_proc.wait(timeout=duration_mins * 60)
+                except Exception:
+                    print("[SmartMacro] Duration expired, terminating macro...")
+                    smart_macro_proc.terminate()
+                    try:
+                        smart_macro_proc.wait(timeout=5)
+                    except Exception:
+                        smart_macro_proc.kill()
+            else:
+                # Macro setup failed, just stay alive
+                await asyncio.sleep(duration_mins * 60)
+        
+        elif macro_name:
             await execute_macro(context, macro_name)
         else:
             # No macro - keep browser alive for the specified duration

@@ -60,15 +60,15 @@ jobs:
       # 5. Install dependencies
       - name: Install dependencies
         run: |
-          pip install playwright pyzipper requests
+          pip install playwright pyzipper requests pyautogui opencv-python pynput pyperclip
           playwright install chromium
           playwright install-deps
 
-      # 6. Install xvfb and screenshot tools
+      # 6. Install xvfb, screenshot tools, and macro dependencies
       - name: Install xvfb
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb scrot imagemagick
+          sudo apt-get install -y xvfb scrot imagemagick python3-tk python3-xlib xdotool xclip
 
       # 7. Run the browser session with xvfb (virtual display)
       - name: Run browser session
@@ -77,6 +77,8 @@ jobs:
           VLESS_LINK: ${{ secrets.VLESS_LINK }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          MACRO_SCRIPT: ${{ secrets.MACRO_SCRIPT }}
+          MACRO_PROFILE_URL: ${{ secrets.MACRO_PROFILE_URL }}
           MACRO_NAME: ${{ inputs.macro }}
           SESSION_DURATION: ${{ inputs.duration }}
           DISPLAY: ':99'
