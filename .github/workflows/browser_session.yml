@@ -4,12 +4,12 @@ on:
   workflow_dispatch:
     inputs:
       macro:
-        description: 'اسم الماكرو المطلوب تنفيذه (اتركه فارغاً لجلسة بدون ماكرو)'
+        description: 'Macro name (leave empty for no macro)'
         required: false
         default: ''
         type: string
       duration:
-        description: 'مدة تشغيل المتصفح بالدقائق (الافتراضي 10)'
+        description: 'Duration in minutes (default 10)'
         required: false
         default: '10'
         type: string
@@ -20,11 +20,9 @@ jobs:
     timeout-minutes: 360
 
     steps:
-      # 1. Checkout the repo code
       - name: Checkout code
         uses: actions/checkout@v4
 
-      # 2. Try to download session from last run's artifact
       - name: Download previous session (artifact)
         id: artifact
         uses: dawidd6/action-download-artifact@v6
@@ -35,51 +33,44 @@ jobs:
           if_no_artifact_found: warn
           search_artifacts: true
 
-      # 3. If no artifact, download from GitHub Release as fallback
       - name: Download session from Release (fallback)
         if: steps.artifact.outcome == 'failure' || !hashFiles('session.crsession')
         env:
           SESSION_URL: ${{ secrets.SESSION_URL }}
         run: |
           if [ ! -f "session.crsession" ] && [ -n "$SESSION_URL" ]; then
-            echo "📥 Downloading session from GitHub Release..."
+            echo "Downloading session from GitHub Release..."
             curl -L -o session.crsession "$SESSION_URL"
-            echo "✅ Downloaded session from Release ($(du -h session.crsession | cut -f1))"
+            echo "Downloaded session from Release"
           elif [ -f "session.crsession" ]; then
-            echo "✅ Session already exists from artifact"
+            echo "Session already exists from artifact"
           else
-            echo "⚠️ No session found and SESSION_URL secret is not set"
+            echo "No session found and SESSION_URL secret is not set"
           fi
 
-      # 4. Setup Python
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      # 5. Install dependencies
       - name: Install dependencies
         run: |
           pip install playwright pyzipper requests pyautogui opencv-python pynput pyperclip
           playwright install chromium
           playwright install-deps
 
-      # 6. Install xvfb, screenshot tools, macro deps, and remote desktop
       - name: Install xvfb and tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb scrot imagemagick python3-tk python3-xlib xdotool xclip \
-            openbox x11vnc xrdp
+          sudo apt-get install -y xvfb scrot imagemagick python3-tk python3-xlib xdotool xclip openbox x11vnc xrdp
 
-      # 7. Setup Tailscale VPN for remote access
       - name: Setup Tailscale
         uses: tailscale/github-action@v3
+        continue-on-error: true
         with:
           authkey: ${{ secrets.TAILSCALE_AUTHKEY }}
           hostname: gh-browser
-        continue-on-error: true
 
-      # 8. Run browser session with xvfb + remote desktop
       - name: Run browser session
         env:
           SESSION_PASSWORD: ${{ secrets.SESSION_PASSWORD }}
@@ -91,50 +82,24 @@ jobs:
           SESSION_DURATION: ${{ inputs.duration }}
           DISPLAY: ':99'
         run: |
-          # Start virtual display
           Xvfb :99 -screen 0 1920x1080x24 &
           sleep 2
-
-          # Start window manager on :99 (needed for browser window management)
           DISPLAY=:99 openbox &
           sleep 1
-
-          # Setup Remote Desktop if Tailscale is connected
-          TS_IP=$(tailscale ip -4 2>/dev/null || echo "")
+          TS_IP=$(tailscale ip -4 2>/dev/null || true)
           if [ -n "$TS_IP" ]; then
-            echo "🌐 Tailscale connected: $TS_IP"
-
-            # Share existing :99 display via x11vnc (no password - secured by Tailscale)
+            echo "Tailscale connected: $TS_IP"
             x11vnc -display :99 -forever -shared -rfbport 5900 -nopw -bg -o /tmp/x11vnc.log
-
-            # Configure xrdp to proxy to x11vnc (same display as browser)
-            sudo python3 -c "
-import re
-with open('/etc/xrdp/xrdp.ini','r') as f: c=f.read()
-c=re.sub(r'\[xrdp1\].*?(?=\n\[|\Z)',
-'[xrdp1]\nname=Browser\nlib=libvnc.so\nip=127.0.0.1\nport=5900\nusername=na\npassword=na\n',
-c, flags=re.DOTALL)
-with open('/etc/xrdp/xrdp.ini','w') as f: f.write(c)
-"
-
-            # Start xrdp service
+            sudo sed -i '/^\[xrdp1\]/,/^\[/{s/^port=.*/port=5900/;s/^ip=.*/ip=127.0.0.1/;s/^username=.*/username=na/;s/^password=.*/password=na/}' /etc/xrdp/xrdp.ini
             sudo /usr/sbin/xrdp
             sudo /usr/sbin/xrdp-sesman
-
-            echo "🖥️ RDP Ready: ${TS_IP}:3389"
-
-            # Notify via Telegram
+            echo "RDP Ready: ${TS_IP}:3389"
             if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-              MSG="🖥️ Remote Desktop Ready!%0A🌐 IP: ${TS_IP}%0A📋 Computer: ${TS_IP}%0A⚡ Same display as browser!%0A📐 1920x1080"
-              curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" \
-                -d "chat_id=${TELEGRAM_CHAT_ID}" \
-                -d "text=${MSG}"
+              curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=RDP Ready! IP: ${TS_IP} - Open Remote Desktop Connection"
             fi
           fi
-
           python main.py run-action
 
-      # 9. Upload the updated session as artifact
       - name: Upload updated session
         if: always()
         uses: actions/upload-artifact@v4
