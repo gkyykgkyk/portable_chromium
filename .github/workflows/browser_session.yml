@@ -38,13 +38,17 @@ jobs:
       # 3. If no artifact, download from GitHub Release as fallback
       - name: Download session from Release (fallback)
         if: steps.artifact.outcome == 'failure' || !hashFiles('session.crsession')
+        env:
+          SESSION_URL: ${{ secrets.SESSION_URL }}
         run: |
-          if [ ! -f "session.crsession" ]; then
+          if [ ! -f "session.crsession" ] && [ -n "$SESSION_URL" ]; then
             echo "📥 Downloading session from GitHub Release..."
-            curl -L -o session.crsession "https://github.com/gkyykgkyk/portable_chromium/releases/download/%D8%AB%D9%8A/session.crsession"
+            curl -L -o session.crsession "$SESSION_URL"
             echo "✅ Downloaded session from Release ($(du -h session.crsession | cut -f1))"
-          else
+          elif [ -f "session.crsession" ]; then
             echo "✅ Session already exists from artifact"
+          else
+            echo "⚠️ No session found and SESSION_URL secret is not set"
           fi
 
       # 4. Setup Python
