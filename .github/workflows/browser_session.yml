@@ -89,13 +89,13 @@ jobs:
           TS_IP=$(tailscale ip -4 2>/dev/null || true)
           if [ -n "$TS_IP" ]; then
             echo "Tailscale connected: $TS_IP"
-            x11vnc -display :99 -forever -shared -rfbport 5900 -nopw -bg -o /tmp/x11vnc.log
-            sudo sed -i '/^\[xrdp1\]/,/^\[/{s/^port=.*/port=5900/;s/^ip=.*/ip=127.0.0.1/;s/^username=.*/username=na/;s/^password=.*/password=na/}' /etc/xrdp/xrdp.ini
-            sudo /usr/sbin/xrdp
-            sudo /usr/sbin/xrdp-sesman
+            x11vnc -display :99 -forever -shared -rfbport 5900 -nopw -bg -o /tmp/x11vnc.log || true
+            sudo sed -i '/^\[xrdp1\]/,/^\[/{s/^port=.*/port=5900/;s/^ip=.*/ip=127.0.0.1/;s/^username=.*/username=na/;s/^password=.*/password=na/}' /etc/xrdp/xrdp.ini || true
+            sudo /usr/sbin/xrdp || true
+            sudo /usr/sbin/xrdp-sesman || true
             echo "RDP Ready: ${TS_IP}:3389"
             if [ -n "$TELEGRAM_BOT_TOKEN" ] && [ -n "$TELEGRAM_CHAT_ID" ]; then
-              curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=RDP Ready! IP: ${TS_IP} - Open Remote Desktop Connection"
+              curl -s "https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage" -d "chat_id=${TELEGRAM_CHAT_ID}" -d "text=RDP Ready! IP: ${TS_IP} - Open Remote Desktop Connection" || true
             fi
           fi
           python main.py run-action
