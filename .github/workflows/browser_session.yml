@@ -62,7 +62,15 @@ jobs:
       - name: Install xvfb and tools
         run: |
           sudo apt-get update
-          sudo apt-get install -y xvfb scrot imagemagick python3-tk python3-xlib xdotool xclip openbox x11vnc xrdp
+          sudo apt-get install -y xvfb scrot imagemagick python3-tk python3-xlib xdotool xclip openbox x11vnc xrdp unzip wget
+
+      - name: Setup Xray Proxy
+        run: |
+          mkdir -p xray
+          wget -qO xray.zip https://github.com/XTLS/Xray-core/releases/latest/download/Xray-linux-64.zip
+          unzip -o xray.zip -d xray
+          chmod +x xray/xray
+          rm xray.zip
 
       - name: Setup Tailscale
         uses: tailscale/github-action@v2
