@@ -9,9 +9,9 @@ on:
         default: ''
         type: string
       duration:
-        description: 'Duration in minutes (default 10)'
+        description: 'Duration in minutes (default 60)'
         required: false
-        default: '10'
+        default: '60'
         type: string
 
 jobs:
